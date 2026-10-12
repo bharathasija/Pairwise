@@ -1212,6 +1212,16 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
         }
     }
 
+    #if DEBUG
+    /// UI snapshot fixtures only: stand in for a connected room.
+    func debugSetCall(participants: [CallParticipant], microphoneEnabled: Bool) {
+        connected = true
+        self.participants = participants
+        isMicrophoneEnabled = microphoneEnabled
+        localMicrophoneLevel = microphoneEnabled ? 0.45 : 0
+    }
+    #endif
+
     private func handleLocalInput(_ event: NSEvent) {
         if event.type == .keyDown, event.keyCode == 53,
            event.modifierFlags.contains([.control, .option]) {
