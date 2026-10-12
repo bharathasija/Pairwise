@@ -149,7 +149,13 @@ struct MenuBarPanel: View {
                                         contactSection("OFFLINE", people: offlineTeammates)
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
-                            }.frame(minHeight: max(88, min(CGFloat(filteredTeammates.count) * 48, 350)), maxHeight: 350)
+                            }
+                            // Take the list's real height, scrolling only past the
+                            // cap. The menu bar window settles on the panel's minimum
+                            // height, so an estimate (it was 48 pt per contact,
+                            // ignoring section headers) clipped short rosters.
+                            .frame(maxHeight: 420)
+                            .fixedSize(horizontal: false, vertical: true)
                         }
                         HStack {
                             Text("Roster refreshes automatically").font(.caption2).foregroundStyle(.tertiary)
