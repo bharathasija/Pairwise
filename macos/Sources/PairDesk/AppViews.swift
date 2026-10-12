@@ -80,9 +80,10 @@ struct SharedScreenWindow: View {
         case .hostPermissionRequired:
             return "Ask \(rtc.participantName(for: sharer)) to enable Accessibility, then try again"
         case .viewer:
-            return rtc.remoteControlAvailable
-                ? "Viewing \(rtc.participantName(for: sharer)) · move or click to request control"
-                : "Viewing \(rtc.participantName(for: sharer)) · view only"
+            let host = rtc.participantName(for: sharer)
+            if rtc.remoteControlAvailable { return "Viewing \(host) · move or click to request control" }
+            if let reason = rtc.remoteControlUnavailableReason { return "Viewing \(host) · \(reason.viewerDescription(host: host))" }
+            return "Viewing \(host) · view only"
         case .host:
             return "You are sharing your display"
         case .unavailable:

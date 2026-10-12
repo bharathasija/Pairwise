@@ -27,7 +27,9 @@ extension RemoteControlState {
 /// Wire format for ephemeral control traffic. `identity` is deliberately not
 /// encoded: the receiver must use LiveKit's authenticated participant identity.
 struct RemoteControlMessage: Codable, Equatable {
-    enum Kind: String, Codable { case request, grant, revoke, hostPermissionRequired, release, heartbeat, pointer, key, button, scroll, releaseAll }
+    /// Clients ignore messages whose kind they cannot decode, so adding a kind
+    /// stays compatible with older builds.
+    enum Kind: String, Codable { case request, grant, revoke, hostPermissionRequired, release, heartbeat, pointer, key, button, scroll, releaseAll, availability }
     var version: Int = 1
     var epoch: String
     var sequence: UInt64
@@ -40,6 +42,35 @@ struct RemoteControlMessage: Codable, Equatable {
     var modifiers: UInt64?
     var deltaX: Double?
     var deltaY: Double?
+    /// `.availability` only: whether the sharer would accept input now, and why not.
+    var available: Bool?
+    var reason: String?
+}
+
+enum RemoteControlUnavailableReason: String, Codable, Equatable {
+    case accessibility
+    case paused
+    case windowShare
+
+    func viewerDescription(host: String) -> String {
+        switch self {
+        case .accessibility: "\(host) needs to allow PairDesk in Accessibility before you can control"
+        case .paused: "\(host) paused remote control"
+        case .windowShare: "window sharing is view only"
+        }
+    }
+}
+
+/// What the sharing Mac tells viewers. Viewers otherwise can only guess from
+/// the track name, and would show "control available" for a Mac that cannot
+/// accept input.
+enum RemoteControlAvailability {
+    static func evaluate(sharingWindow: Bool, accessibilityTrusted: Bool, automaticControlEnabled: Bool) -> (available: Bool, reason: RemoteControlUnavailableReason?) {
+        if sharingWindow { return (false, .windowShare) }
+        if !accessibilityTrusted { return (false, .accessibility) }
+        if !automaticControlEnabled { return (false, .paused) }
+        return (true, nil)
+    }
 }
 
 /// First eligible requester owns the current lease; later requesters wait in

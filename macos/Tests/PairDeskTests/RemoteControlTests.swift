@@ -82,6 +82,28 @@ final class RemoteControlTests: XCTestCase {
         XCTAssertNil(RemoteInputInjector.point(x: 0.5, y: 0.5, in: .zero))
     }
 
+    func testAvailabilityMessageRoundTripsAndUnknownKindsAreIgnored() throws {
+        let sent = RemoteControlMessage(epoch: "", sequence: 7, kind: .availability, available: false,
+                                        reason: RemoteControlUnavailableReason.accessibility.rawValue)
+        let received = try JSONDecoder().decode(RemoteControlMessage.self, from: JSONEncoder().encode(sent))
+        XCTAssertEqual(received, sent)
+        XCTAssertEqual(received.reason.flatMap(RemoteControlUnavailableReason.init(rawValue:)), .accessibility)
+        // Older builds drop kinds they don't know instead of failing the call.
+        let future = Data(#"{"version":1,"epoch":"","sequence":1,"kind":"something-newer"}"#.utf8)
+        XCTAssertNil(try? JSONDecoder().decode(RemoteControlMessage.self, from: future))
+    }
+
+    func testAvailabilityReportsTheFirstBlockingCondition() {
+        let window = RemoteControlAvailability.evaluate(sharingWindow: true, accessibilityTrusted: true, automaticControlEnabled: true)
+        XCTAssertFalse(window.available); XCTAssertEqual(window.reason, .windowShare)
+        let untrusted = RemoteControlAvailability.evaluate(sharingWindow: false, accessibilityTrusted: false, automaticControlEnabled: true)
+        XCTAssertFalse(untrusted.available); XCTAssertEqual(untrusted.reason, .accessibility)
+        let paused = RemoteControlAvailability.evaluate(sharingWindow: false, accessibilityTrusted: true, automaticControlEnabled: false)
+        XCTAssertFalse(paused.available); XCTAssertEqual(paused.reason, .paused)
+        let ready = RemoteControlAvailability.evaluate(sharingWindow: false, accessibilityTrusted: true, automaticControlEnabled: true)
+        XCTAssertTrue(ready.available); XCTAssertNil(ready.reason)
+    }
+
     private func message(epoch: String, seq: UInt64, kind: RemoteControlMessage.Kind = .pointer) -> RemoteControlMessage {
         RemoteControlMessage(epoch: epoch, sequence: seq, kind: kind, x: 0.5, y: 0.5)
     }

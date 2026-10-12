@@ -36,6 +36,8 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
     @Published private(set) var pendingControlRequests: [CallParticipant] = []
     @Published private(set) var activeSharerIdentity: String?
     @Published private(set) var remoteControlAvailable = false
+    /// Viewer side: why the sharer will not accept input, when it won't.
+    @Published private(set) var remoteControlUnavailableReason: RemoteControlUnavailableReason?
     @Published private(set) var automaticControlEnabled = false
     @Published private(set) var remotePointers: [RemotePointer] = []
     @Published private(set) var localIdentity: String?
@@ -74,6 +76,9 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
     private var localHeldKeys = Set<UInt16>()
     private var localHeldButtons = Set<Int>()
     private var controllerIdleTask: Task<Void, Never>?
+    private var requestTimeoutTask: Task<Void, Never>?
+    /// Availability can arrive before the screen track is subscribed.
+    private var controlAvailabilityBySender: [String: (available: Bool, reason: RemoteControlUnavailableReason?)] = [:]
     private var leaseTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var heldKeys = Set<UInt16>()
@@ -176,6 +181,10 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
         leaseTask?.cancel()
         heartbeatTask = nil
         leaseTask = nil
+        requestTimeoutTask?.cancel()
+        requestTimeoutTask = nil
+        controlAvailabilityBySender.removeAll()
+        remoteControlUnavailableReason = nil
         emergencyStop()
         controlTransportFailed = true
         if let room {
@@ -305,7 +314,9 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
             let selectedWindow = contentFilter.style == .window
             let selectedFrame = contentFilter.contentRect
             let canControlDisplay = AXIsProcessTrusted()
-            let trackName = "pairdesk.screen.display"
+            // Older viewers infer view-only from the ".window" suffix; newer
+            // ones also receive explicit availability messages.
+            let trackName = selectedWindow ? "pairdesk.screen.window" : "pairdesk.screen.display"
             let captureOptions = ScreenShareCaptureOptions(dimensions: .h1440_169,
                                                            fps: 30,
                                                            showCursor: true,
@@ -335,6 +346,7 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
                 : (automaticControlEnabled ? "Sharing display · teammates can control when they interact" : "Sharing display · remote control unavailable")
             sendControl(.init(epoch: UUID().uuidString, sequence: nextSequence(), kind: .releaseAll))
             startAccessibilityMonitor()
+            sendControlAvailability()
             pendingTrack = nil
         } catch {
             if let pendingTrack { _ = try? await pendingTrack.capturer.stopCapture() }
@@ -387,6 +399,15 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
         lastControlRequestAt = ProcessInfo.processInfo.systemUptime
         controlState = .requesting
         sendControl(.init(epoch: "", sequence: nextSequence(), kind: .request))
+        // An older host ignores requests it cannot grant; don't show
+        // "Connecting remote control…" forever.
+        requestTimeoutTask?.cancel()
+        requestTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, let self, case .requesting = self.controlState else { return }
+            self.controlState = .viewer
+            self.queuedLocalIntents.removeAll()
+        }
     }
 
     func grantControl(identity: String) {
@@ -427,6 +448,7 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
         }
         pendingControlRequests.removeAll()
         controlState = .host
+        sendControlAvailability()
     }
 
     func resumeRemoteControl() {
@@ -435,6 +457,36 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
         automaticControlEnabled = true
         controlArbiter.enable()
         controlState = .host
+        sendControlAvailability()
+    }
+
+    /// Host: tells one viewer, or everyone, whether input would be accepted now.
+    private func sendControlAvailability(to identity: String? = nil) {
+        guard isSharing else { return }
+        let state = RemoteControlAvailability.evaluate(sharingWindow: shareIsWindow,
+                                                       accessibilityTrusted: AXIsProcessTrusted(),
+                                                       automaticControlEnabled: automaticControlEnabled)
+        sendControl(.init(epoch: "", sequence: nextSequence(), kind: .availability,
+                          available: state.available, reason: state.reason?.rawValue), to: identity)
+    }
+
+    /// Viewer: prefer what the host said; fall back to the track name for older hosts.
+    private func applyRemoteControlAvailability(from sender: String, trackName: String) {
+        if let known = controlAvailabilityBySender[sender] {
+            applyRemoteControlAvailability(known.available, reason: known.reason)
+        } else {
+            let isWindow = trackName.hasSuffix(".window")
+            applyRemoteControlAvailability(!isWindow, reason: isWindow ? .windowShare : nil)
+        }
+    }
+
+    private func applyRemoteControlAvailability(_ available: Bool, reason: RemoteControlUnavailableReason?) {
+        remoteControlAvailable = available
+        remoteControlUnavailableReason = available ? nil : reason
+        guard !available else { return }
+        requestTimeoutTask?.cancel()
+        queuedLocalIntents.removeAll()
+        if case .requesting = controlState { controlState = .viewer }
     }
 
     /// Accessibility consent can change while the share is active in System Settings.
@@ -464,6 +516,7 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
                 ? "Sharing display · remote control is paused"
                 : "Sharing display · remote control is ready"
             error = nil
+            sendControlAvailability()
         } else if !trusted && remoteControlAvailable {
             remoteControlAvailable = false
             pauseRemoteControl(userInitiated: false)
@@ -632,7 +685,11 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
             self.activeSharerIdentity = nil
             self.remotePointers = []
             self.pendingControlRequests = []
-        self.room = nil
+            self.requestTimeoutTask?.cancel()
+            self.requestTimeoutTask = nil
+            self.controlAvailabilityBySender.removeAll()
+            self.remoteControlUnavailableReason = nil
+            self.room = nil
             self.controlState = .unavailable
             self.audioForwardingConsented = false
             self.controlTransportFailed = true
@@ -671,7 +728,7 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
                 guard let self, self.room === room else { return }
                 self.screenTrack = video
                 self.activeSharerIdentity = identity
-                self.remoteControlAvailable = !video.name.hasSuffix(".window")
+                self.applyRemoteControlAvailability(from: identity, trackName: video.name)
                 self.refreshSharer()
                 self.requestControl()
             }
@@ -770,10 +827,14 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
         }
         switch message.kind {
         case .request:
-            guard isSharing, !shareIsWindow, sender != localIdentity else { return }
-            guard automaticControlEnabled else {
+            guard isSharing, sender != localIdentity else { return }
+            guard !shareIsWindow, automaticControlEnabled else {
+                // Revoke, or hostPermissionRequired, ends an older viewer's wait;
+                // availability tells a newer one why, so it stops showing
+                // control as available.
                 let kind: RemoteControlMessage.Kind = AXIsProcessTrusted() ? .revoke : .hostPermissionRequired
                 sendControl(.init(epoch: "", sequence: nextSequence(), kind: kind), to: sender)
+                sendControlAvailability(to: sender)
                 return
             }
             let name = room?.remoteParticipants.values.first(where: { $0.identity?.stringValue == sender })?.name ?? sender
@@ -792,9 +853,15 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
                 }
             case .ignored: break
             }
+        case .availability:
+            guard !isSharing, sender != localIdentity, let available = message.available else { return }
+            let reason = message.reason.flatMap(RemoteControlUnavailableReason.init(rawValue:))
+            controlAvailabilityBySender[sender] = (available, reason)
+            if sender == activeSharerIdentity { applyRemoteControlAvailability(available, reason: reason) }
         case .grant:
             guard sender == activeSharerIdentity, !message.epoch.isEmpty,
                   case .requesting = controlState else { return }
+            requestTimeoutTask?.cancel()
             localControllerEpoch = message.epoch
             controlState = .granted(identity: sender, expiresAt: .now.addingTimeInterval(2))
             let queued = queuedLocalIntents
@@ -805,6 +872,7 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
             } else { scheduleLocalIdleExpiry(epoch: message.epoch) }
         case .revoke:
             guard sender == activeSharerIdentity else { return }
+            requestTimeoutTask?.cancel()
             localControllerEpoch = nil
             heartbeatTask?.cancel()
             heartbeatTask = nil
@@ -1090,15 +1158,17 @@ final class RTCService: NSObject, ObservableObject, RoomDelegate {
         guard let room else { return }
         if isSharing { activeSharerIdentity = localIdentity; return }
         for participant in room.remoteParticipants.values {
-            if let publication = participant.videoTracks.first(where: { $0.source == .screenShareVideo }) {
-                activeSharerIdentity = participant.identity?.stringValue
-                remoteControlAvailable = !publication.name.hasSuffix(".window")
+            if let publication = participant.videoTracks.first(where: { $0.source == .screenShareVideo }),
+               let sharer = participant.identity?.stringValue {
+                activeSharerIdentity = sharer
+                applyRemoteControlAvailability(from: sharer, trackName: publication.name)
                 controlState = .viewer
                 return
             }
         }
         activeSharerIdentity = nil
         remoteControlAvailable = false
+        remoteControlUnavailableReason = nil
         if connected { controlState = .viewer }
     }
 
