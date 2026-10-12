@@ -29,4 +29,4 @@ The workflow imports the signing certificate into a temporary keychain, stores n
 
 ## Local development builds
 
-`scripts/build-app.sh` and `scripts/create-dmg.sh` remain available for local development. Those builds are ad-hoc signed and are not a substitute for this release workflow: Gatekeeper may block them, and macOS may require permission approval again after a rebuild. Never bypass Gatekeeper to distribute a development image.
+`scripts/build-app.sh` and `scripts/create-dmg.sh` remain available for local development. They are signed with the local identity from `scripts/create-signing-identity.sh` when it exists, and ad-hoc otherwise. Keep building with the same identity: an ad-hoc build is a new app to macOS each time, so the saved sign-in prompts for the Mac password and permissions may need approval again. Neither is a substitute for this release workflow, and Gatekeeper may block both. Never bypass Gatekeeper to distribute a development image.

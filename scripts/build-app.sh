@@ -6,7 +6,8 @@ MACOS="$ROOT/macos"
 CONFIGURATION=${PAIRDESK_CONFIGURATION:-release}
 OUTPUT=${PAIRDESK_APP_OUTPUT:-"$ROOT/dist/PairDesk.app"}
 STAGING="$ROOT/dist/.PairDesk.app.staging.$$"
-SIGNING_IDENTITY=${DEVELOPER_SIGNING_IDENTITY:--}
+SIGNING_IDENTITY=${DEVELOPER_SIGNING_IDENTITY:-}
+LOCAL_SIGNING_IDENTITY="PairDesk Local Signing"
 WHISPER_RUNTIME="$ROOT/.cache/whisper/runtime"
 BUILD_PATH=${PAIRDESK_BUILD_PATH:-"$MACOS/.build"}
 FRAMEWORKS_SOURCE="$BUILD_PATH/artifacts"
@@ -19,6 +20,18 @@ fail() {
 
 if [ -e "$OUTPUT" ]; then
   fail "$OUTPUT already exists; move or remove it before packaging another build"
+fi
+
+# Prefer a stable identity: macOS ties keychain and privacy approvals to the
+# signature, and an ad-hoc signature changes with every build. Set
+# DEVELOPER_SIGNING_IDENTITY=- to force ad-hoc signing.
+if [ -z "$SIGNING_IDENTITY" ]; then
+  if security find-identity -p codesigning | grep -F "\"$LOCAL_SIGNING_IDENTITY\"" >/dev/null; then
+    SIGNING_IDENTITY=$LOCAL_SIGNING_IDENTITY
+  else
+    SIGNING_IDENTITY=-
+    echo "build-app: ad-hoc signing. macOS will treat this build as a new app: the saved sign-in asks for the Mac password and permissions may need approval again. Run scripts/create-signing-identity.sh once to avoid this." >&2
+  fi
 fi
 
 if [ "${PAIRDESK_SKIP_BUILD:-0}" != "1" ]; then

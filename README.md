@@ -51,7 +51,7 @@ sh scripts/prepare-whisper.sh
 sh scripts/build-app.sh
 ```
 
-The whisper.cpp source and Tiny model download into ignored `.cache/` and are checked against pinned revisions/checksums. They are not committed. Local builds use ad-hoc signing; distributing outside your own Mac requires a stable Developer ID signature and Apple notarization. See [Apple's notarization guide](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+The whisper.cpp source and Tiny model download into ignored `.cache/` and are checked against pinned revisions/checksums. They are not committed. Run `sh scripts/create-signing-identity.sh` once on the Mac that builds PairDesk, and `build-app.sh` signs every build with that same self-signed identity. Without it, builds are ad-hoc signed and macOS treats each one as a new app: the saved sign-in asks for the Mac password (twice) after every install, and permissions may need approval again. Distributing outside your team's Macs still requires a Developer ID signature and Apple notarization. See [Apple's notarization guide](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
 ## Tests
 

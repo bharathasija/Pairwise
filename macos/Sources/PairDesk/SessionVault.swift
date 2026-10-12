@@ -17,9 +17,10 @@ enum SessionVault {
         // the exact signature that created it. An ad-hoc build's designated
         // requirement is its cdhash, so every new build is a stranger and
         // macOS asks for the login password (ACL, then partition list) on
-        // launch. Only a stable Developer ID signature makes "Always Allow"
-        // survive updates; ad-hoc builds cannot use the data-protection
-        // keychain because keychain-access-groups needs a provisioning profile.
+        // launch. A stable signature (Developer ID, or the local identity from
+        // scripts/create-signing-identity.sh) makes "Always Allow" survive
+        // updates. Unsigned builds cannot use the data-protection keychain:
+        // keychain-access-groups needs a provisioning profile.
         q[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
         var item: CFTypeRef?
         guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }
