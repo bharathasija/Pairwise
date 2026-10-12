@@ -2,14 +2,6 @@ import SwiftUI
 import AppKit
 import LiveKit
 
-private enum Palette {
-    static let background = Color(red: 0.055, green: 0.065, blue: 0.08)
-    static let panel = Color(red: 0.085, green: 0.10, blue: 0.12)
-    static let card = Color(red: 0.12, green: 0.14, blue: 0.16)
-    static let accent = Color(red: 0.48, green: 0.92, blue: 0.76)
-    static let muted = Color(red: 0.55, green: 0.62, blue: 0.65)
-}
-
 struct RootView: View {
     @ObservedObject var store: AppStore
     var body: some View {
@@ -17,8 +9,8 @@ struct RootView: View {
             if store.user == nil { LoginView(store: store) }
             else { WorkspaceView(store: store, rtc: store.rtc, transcripts: store.transcripts) }
         }
-        .tint(Palette.accent)
-        .background(Palette.background)
+        .tint(Theme.accent)
+        .background(Theme.surface)
         .alert("PairDesk", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("OK") { store.error = nil }
         } message: { Text(store.error ?? "") }
@@ -35,13 +27,13 @@ private struct LoginView: View {
         VStack(alignment: .leading, spacing: 18) {
             Logo(size: 44).padding(.top, 12) // clear of the hidden title bar's window buttons
             Text("Sign in to PairDesk").font(.system(size: 22, weight: .semibold))
-            Text("Use the account your team created.").foregroundStyle(Palette.muted).font(.system(size: 13))
+            Text("Use the account your team created.").foregroundStyle(Theme.textMuted).font(.system(size: 13))
             VStack(alignment: .leading, spacing: 8) {
-                Text("EMAIL").font(.system(size: 10, weight: .bold)).foregroundStyle(Palette.muted)
+                Text("EMAIL").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.textMuted)
                 TextField("you@team.com", text: $email).textFieldStyle(.roundedBorder).focused($focused)
             }.padding(.top, 12)
             VStack(alignment: .leading, spacing: 8) {
-                Text("PASSWORD").font(.system(size: 10, weight: .bold)).foregroundStyle(Palette.muted)
+                Text("PASSWORD").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.textMuted)
                 SecureField("Your password", text: $password).textFieldStyle(.roundedBorder)
             }
             Button {
@@ -55,9 +47,9 @@ private struct LoginView: View {
                 .keyboardShortcut(.defaultAction)
             DisclosureGroup("Server address", isExpanded: $serverExpanded) {
                 TextField("https://pair.yourteam.com", text: $store.serverAddress).textFieldStyle(.roundedBorder).padding(.top, 8)
-            }.font(.system(size: 12)).foregroundStyle(Palette.muted).disabled(store.busy)
+            }.font(.system(size: 12)).foregroundStyle(Theme.textMuted).disabled(store.busy)
             Text("Need an account or password reset? Ask your team administrator.")
-                .font(.system(size: 11)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 11)).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
         }.padding(32).frame(width: 380)
             .onAppear { focused = true }
     }
@@ -152,7 +144,7 @@ struct SharedScreenWindow: View {
                 if showTranscript { TranscriptPanel(transcriber: transcripts, rtc: rtc).frame(width: 275) }
             }
             if let error = rtc.error { HStack { Text(error).font(.caption).foregroundStyle(.orange); Spacer(); Button("Permissions") { permissions = true } }.padding(8) }
-        }.background(Palette.background).tint(Palette.accent)
+        }.background(Theme.surface).tint(Theme.accent)
         .task {
             while !Task.isCancelled {
                 rtc.refreshScreenNetworkQuality()
@@ -164,10 +156,7 @@ struct SharedScreenWindow: View {
         .alert("PairDesk", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) { Button("OK") { store.error = nil } } message: { Text(store.error ?? "") }
     }
 
-    private func cursorColor(for identity: String) -> Color {
-        let value = identity.utf8.reduce(UInt64(2_166_136_261)) { ($0 ^ UInt64($1)) &* 16_777_619 }
-        return Color(hue: Double(value % 360) / 360, saturation: 0.78, brightness: 0.96)
-    }
+    private func cursorColor(for identity: String) -> Color { Theme.personColor(for: identity) }
 
     private var networkQualityColor: Color {
         switch rtc.screenNetworkQuality {
@@ -244,25 +233,25 @@ private struct TranscriptPanel: View {
     @ObservedObject var rtc: RTCService
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack { Text("Local transcript").font(.system(size: 14, weight: .semibold)); Spacer(); Image(systemName: "lock").font(.system(size: 11)).foregroundStyle(Palette.accent) }
+            HStack { Text("Local transcript").font(.system(size: 14, weight: .semibold)); Spacer(); Image(systemName: "lock").font(.system(size: 11)).foregroundStyle(Theme.accent) }
             Toggle("Transcribe on this Mac", isOn: Binding(get: { transcriber.enabled }, set: {
                 transcriber.setEnabled($0)
                 rtc.setAudioForwardingConsented(transcriber.enabled)
             })).toggleStyle(.switch).font(.system(size: 11))
-            Text(transcriber.status).font(.system(size: 10)).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+            Text(transcriber.status).font(.system(size: 10)).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
-                        if transcriber.segments.isEmpty { Text("Speech will appear here when transcription is on. Tiny is fast, but may miss technical words.").font(.system(size: 12)).foregroundStyle(Palette.muted).padding(.top, 20) }
+                        if transcriber.segments.isEmpty { Text("Speech will appear here when transcription is on. Tiny is fast, but may miss technical words.").font(.system(size: 12)).foregroundStyle(Theme.textMuted).padding(.top, 20) }
                         ForEach(transcriber.segments) { segment in
-                            VStack(alignment: .leading, spacing: 5) { HStack { Text(segment.speakerName).font(.system(size: 10, weight: .semibold)).foregroundStyle(Palette.accent); Spacer(); Text(segment.createdAt, style: .time).font(.system(size: 9)).foregroundStyle(Palette.muted) }; Text(segment.text).font(.system(size: 12)).textSelection(.enabled).lineSpacing(3) }.id(segment.id)
+                            VStack(alignment: .leading, spacing: 5) { HStack { Text(segment.speakerName).font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.accent); Spacer(); Text(segment.createdAt, style: .time).font(.system(size: 9)).foregroundStyle(Theme.textMuted) }; Text(segment.text).font(.system(size: 12)).textSelection(.enabled).lineSpacing(3) }.id(segment.id)
                         }
                     }
                 }.onChange(of: transcriber.segments.count) { _, _ in if let id = transcriber.segments.last?.id { proxy.scrollTo(id, anchor: .bottom) } }
             }
-            HStack { Button("Clear") { transcriber.clear() }.buttonStyle(.plain); Spacer(); Button("Export text") { export() }.buttonStyle(.plain).disabled(transcriber.segments.isEmpty) }.font(.system(size: 11)).foregroundStyle(Palette.muted)
-            Text("No upload. Not saved automatically.").font(.system(size: 9)).foregroundStyle(Palette.muted)
+            HStack { Button("Clear") { transcriber.clear() }.buttonStyle(.plain); Spacer(); Button("Export text") { export() }.buttonStyle(.plain).disabled(transcriber.segments.isEmpty) }.font(.system(size: 11)).foregroundStyle(Theme.textMuted)
+            Text("No upload. Not saved automatically.").font(.system(size: 9)).foregroundStyle(Theme.textMuted)
         }.padding(20)
     }
     private func export() {
@@ -391,7 +380,7 @@ private struct CreateMemberView: View {
             TextField("Email", text: $email).textFieldStyle(.roundedBorder)
             SecureField("Initial password (12+ characters)", text: $password).textFieldStyle(.roundedBorder)
             if let error { Text(error).foregroundStyle(.orange).font(.system(size: 12)) }
-            if created { Label("Account created", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.accent) }
+            if created { Label("Account created", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.accent) }
             HStack { Spacer(); Button("Close") { dismiss() }; Button(saving ? "Creating…" : "Create account") {
                 saving = true
                 error = nil
@@ -407,10 +396,5 @@ private struct CreateMemberView: View {
 
 private struct Logo: View {
     let size: CGFloat
-    var body: some View { Image(systemName: "rectangle.on.rectangle.angled").font(.system(size: size * 0.53, weight: .medium)).foregroundStyle(Palette.accent).frame(width: size, height: size).background(Palette.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: size * 0.26)) }
-}
-private struct Avatar: View {
-    let initials: String
-    let size: CGFloat
-    var body: some View { Text(initials).font(.system(size: size * 0.33, weight: .semibold)).foregroundStyle(Palette.accent).frame(width: size, height: size).background(Palette.accent.opacity(0.12), in: Circle()) }
+    var body: some View { Image(systemName: "rectangle.on.rectangle.angled").font(.system(size: size * 0.53, weight: .medium)).foregroundStyle(Theme.accent).frame(width: size, height: size).background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: size * 0.26)) }
 }

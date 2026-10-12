@@ -13,6 +13,7 @@ final class AppStore: ObservableObject {
     @Published var callInvitations: [CallInvitation] = []
     @Published var callMessage: String?
     @Published var activeRoom: PairRoom?
+    @Published var callStartedAt: Date?
     @Published var busy = false
     @Published var error: String?
     @Published var directoryStatus = "Connecting…"
@@ -326,6 +327,7 @@ final class AppStore: ObservableObject {
             guard generation == attempt else { await rtc.disconnect(); return }
             transcripts.clear()
             activeRoom = join.room
+            callStartedAt = Date()
             // Join already refreshed this member's reservation. Update the
             // roster without holding up the microphone behind three more
             // API round trips.
@@ -343,6 +345,7 @@ final class AppStore: ObservableObject {
         hadRemoteParticipant = false
         let room = activeRoom
         activeRoom = nil
+        callStartedAt = nil
         screenClaimRoomID = nil
         await rtc.disconnect()
         if let room { try? await api.send("v1/rooms/\(room.id)/leave", body: EmptyBody()) }
